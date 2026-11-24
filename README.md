@@ -81,7 +81,7 @@ cp .env.example .env
 ```
 Update your `.env` with your settings:
 ```env
-PORT=5000
+PORT=5001
 MONGO_URI=mongodb://127.0.0.1:27017/leave_management
 JWT_SECRET=your_jwt_secret_here
 JWT_EXPIRES_IN=1d
@@ -120,11 +120,11 @@ npm start
 
 ## 📮 Step-by-Step Postman Testing Guide (Authentication & Profile)
 
-Ensure your server is running with `npm run dev` on `http://localhost:5000`.
+Ensure your server is running with `npm run dev` on `http://localhost:5001`.
 
 ### 1. Register a New Employee
 - **Method**: `POST`
-- **URL**: `http://localhost:5000/api/auth/register`
+- **URL**: `http://localhost:5001/api/auth/register`
 - **Headers**:
   - `Content-Type`: `application/json`
 - **Body** (raw JSON):
@@ -162,7 +162,7 @@ Ensure your server is running with `npm run dev` on `http://localhost:5000`.
 
 ### 2. Duplicate Registration Rejection
 - **Method**: `POST`
-- **URL**: `http://localhost:5000/api/auth/register`
+- **URL**: `http://localhost:5001/api/auth/register`
 - **Headers**:
   - `Content-Type`: `application/json`
 - **Body** (same email as Step 1):
@@ -186,7 +186,7 @@ Ensure your server is running with `npm run dev` on `http://localhost:5000`.
 
 ### 3. Role Privilege Tampering Defense
 - **Method**: `POST`
-- **URL**: `http://localhost:5000/api/auth/register`
+- **URL**: `http://localhost:5001/api/auth/register`
 - **Headers**:
   - `Content-Type`: `application/json`
 - **Body**:
@@ -206,7 +206,7 @@ Ensure your server is running with `npm run dev` on `http://localhost:5000`.
 ---
 
 ### 4. Input Validation & NoSQL Injection Rejection
-Send each of the following requests to `POST http://localhost:5000/api/auth/register`:
+Send each of the following requests to `POST http://localhost:5001/api/auth/register`:
 
 | Test Scenario | Request Body | Expected Status | Expected Message |
 | :--- | :--- | :---: | :--- |
@@ -219,7 +219,7 @@ Send each of the following requests to `POST http://localhost:5000/api/auth/regi
 
 ### 5. Login with Valid Credentials
 - **Method**: `POST`
-- **URL**: `http://localhost:5000/api/auth/login`
+- **URL**: `http://localhost:5001/api/auth/login`
 - **Headers**:
   - `Content-Type`: `application/json`
 - **Body**:
@@ -252,7 +252,7 @@ Send each of the following requests to `POST http://localhost:5000/api/auth/regi
 ---
 
 ### 6. Login Failure Scenarios
-Send each of the following to `POST http://localhost:5000/api/auth/login`:
+Send each of the following to `POST http://localhost:5001/api/auth/login`:
 
 - **Wrong Password**:
   - Body: `{"email": "soumabha@example.com", "password": "wrongPassword123"}`
@@ -271,7 +271,7 @@ Send each of the following to `POST http://localhost:5000/api/auth/login`:
 
 ### 7. Access Protected Profile
 - **Method**: `GET`
-- **URL**: `http://localhost:5000/api/profile`
+- **URL**: `http://localhost:5001/api/profile`
 - **Headers**:
   - `Authorization`: `Bearer <paste_your_token_from_step_5>`
 - **Expected Status**: `200 OK`
