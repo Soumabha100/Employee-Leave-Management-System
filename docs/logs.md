@@ -89,3 +89,66 @@ This log records all changes, milestones, test verifications, and architectural 
 3. **NoSQL Injection Resistance**: Verified all string inputs in controllers enforce `requireString()`.
 4. **Secrets Audit**: Confirmed `.env` is uncommitted and strictly tracked by `.gitignore`.
 5. **Documentation**: Added comprehensive 8-step Postman testing guide to `README.md`.
+
+---
+
+## [Phase 3] - Leave Applications, History, Search & Filtering
+- **Date**: 2026-11-24
+- **Owner**: Souvojit Sadhukhan (Member 3)
+- **Branch**: `feat/leaves`
+- **Status**: Completed & Verified
+
+### Summary of Work:
+1. **Model Implementation (`models/Leave.js`)**:
+   - Defined `leaveSchema` with:
+     - `employee_id`: required ObjectId reference to `User`.
+     - `leaveType`: enum (`sick`, `casual`, `annual`), required.
+     - `fromDate` & `toDate`: required Date fields.
+     - `reason`: required string, trimmed, capped at 500 characters.
+     - `status`: enum (`pending`, `approved`, `rejected`), defaults to `'pending'`.
+     - `totalDays`: required integer (minimum 1), computed server-side as inclusive calendar days.
+     - `reviewedBy`: ObjectId reference to `User` (defaults to `null`).
+     - `reviewedAt`: Date (defaults to `null`).
+     - `rejectionReason`: trimmed string (defaults to `null`).
+   - Created compound indexes:
+     - `{ employee_id: 1, fromDate: 1 }` for personal history and overlap lookups.
+     - `{ status: 1, createdAt: 1 }` for administrative dashboard filtering.
+   - Configured `toJSON` transform to strip `__v`.
+
+2. **Controllers (`controllers/leaveController.js`)**:
+   - `applyLeave` (POST `/api/leaves`):
+     - Sanitizes payload: selectively extracts only `leaveType`, `fromDate`, `toDate`, `reason`. Client-sent `employee_id`, `status`, and `totalDays` are completely ignored.
+     - Input validation: validates enum membership, strict `YYYY-MM-DD` date parsing, verifies `toDate >= fromDate`, enforces `fromDate >= today` (Asia/Kolkata timezone), and enforces non-empty `reason` <= 500 characters.
+     - Date math: calculates `totalDays` as inclusive calendar days via `daysBetweenInclusive`.
+     - Overlap prevention (409 Conflict): rejects requests where an employee already has an active (`pending` or `approved`) leave spanning the requested date window (`existing.fromDate <= new.toDate && existing.toDate >= new.fromDate`).
+     - Balance check (400 Bad Request): verifies `LeaveBalance[leaveType] >= totalDays` without early deduction (atomic deduction deferred to Sohan's approval endpoint).
+     - Returns status `201 Created` with the newly created leave record.
+   - `getMyLeaves` (GET `/api/leaves`):
+     - Scoped strictly to `req.user.id`.
+     - Supports pagination (`page`, `limit`), filters (`status`, `leaveType`, date range `from` and `to` matching overlapping leaves), and sorting against an allow-list (`createdAt`, `fromDate`, `toDate`, `status`, `leaveType`) with order `asc` or `desc`.
+     - Validates all query parameters, returning 400 on malformed input.
+   - `getAllLeaves` (GET `/api/leaves/all`):
+     - Administrative endpoint protected by `authorize('admin', 'hr')`.
+     - Provides complete query suite: pagination, filters by `status`, `leaveType`, `employeeId` (with `isValidObjectId` validation), and date bounds (`from`, `to`).
+     - High-performance case-insensitive search (`q`): escapes regex special characters, queries `User` collection for matching names (capped at 100 IDs), then issues an `$or` query on `employee_id IN matchingUserIds` OR `reason =~ /q/i`.
+     - Populates `employee_id` with only safe fields: `name`, `email`, `role` (strictly omitting `password`).
+     - Reuses identical filter object across `countDocuments` and `find` to guarantee pagination accuracy.
+   - `getLeaveById` (GET `/api/leaves/:id`):
+     - Fetches individual leave request with populated user details.
+     - Ownership guard: allows access only to the document owner, Admin, or HR; returns 403 Forbidden for unauthorized employees.
+     - Validates MongoDB ObjectId format, returning 400 on invalid IDs and 404 if not found.
+   - `cancelLeave` (DELETE `/api/leaves/:id`):
+     - Ownership guard: only the creator (`employee_id === req.user.id`) may cancel; unauthorized users receive 403 Forbidden.
+     - State machine guard: allows cancellation only while `status === 'pending'`. Approved or rejected leaves return 409 Conflict.
+     - Deletes document upon validation and returns 200 OK.
+
+3. **Routing Architecture & Route Ordering (`routes/leaveRoutes.js`)**:
+   - Enforces `protect` authentication across all leave routes.
+   - Critical Route Ordering: mounted `GET /all` strictly **before** `GET /:id` to prevent Express from treating the literal string `"all"` as an ObjectId parameter.
+   - Attached `validateObjectId('id')` middleware to all parameterized routes (`/:id`).
+   - Cleaned up route mounting in `routes/leaveReviewRoutes.js` and `controllers/leaveReviewController.js` to prevent duplicate handler collisions with Sohan's approval/rejection endpoints.
+
+4. **Testing Suite & Documentation**:
+   - Live cluster verification against MongoDB Atlas (`leave_management` DB).
+   - Documented 16 comprehensive Postman test scenarios covering all happy paths, edge cases, validation rejections (400), conflicts (409), and authorization boundaries (403).
+   - Created standalone `postman-testing-guide.md` and updated `README.md` with complete parameter specifications and sample JSON payloads.
