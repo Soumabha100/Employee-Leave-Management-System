@@ -111,7 +111,9 @@ npm start
 | `GET` | `/api/attendance` | Private | Soumyajit | Attendance records (with pagination/date filters) |
 | `POST` | `/api/leaves` | Private | Souvojit | Apply for leave |
 | `GET` | `/api/leaves` | Private | Souvojit | View personal leave history |
-| `GET` | `/api/leaves/all` | Admin / HR | Sohan | View all leave requests (paginated) |
+| `GET` | `/api/leaves/all` | Admin / HR | Souvojit | View all leave requests (search, filter, sort, paginate) |
+| `GET` | `/api/leaves/:id` | Private | Souvojit | View single leave (ownership check) |
+| `DELETE` | `/api/leaves/:id` | Private | Souvojit | Cancel own pending leave |
 | `PUT` | `/api/leaves/:id/approve` | Admin / HR | Sohan | Approve leave & deduct balance |
 | `PUT` | `/api/leaves/:id/reject` | Admin / HR | Sohan | Reject leave request |
 | `GET` | `/api/leave-balance` | Private | Sohan | Get current employee leave balance |
@@ -322,3 +324,281 @@ Send each of the following to `POST http://localhost:5001/api/auth/login`:
    - `protect` middleware verifies JWT signatures and fetches the user from MongoDB to enforce the database role, preventing spoofed role claims in forged tokens.
 6. **Centralized Error Sanitization**:
    - Non-operational stack traces and raw Mongo errors are never exposed to clients; clients only receive consistent standard error envelopes.
+
+---
+
+## 📋 Leave Endpoints – Detailed Documentation (Owner: Souvojit)
+
+> **Design Decision**: `totalDays` is calculated as **inclusive calendar days** (weekends included). For example, Friday to Monday = 4 days. This keeps the logic simple and consistent.
+
+### POST `/api/leaves` — Apply for Leave
+
+| Field | Source | Description |
+| :--- | :--- | :--- |
+| `leaveType` | Body | `sick`, `casual`, or `annual` |
+| `fromDate` | Body | Start date in `YYYY-MM-DD` format |
+| `toDate` | Body | End date in `YYYY-MM-DD` format |
+| `reason` | Body | Non-empty string, max 500 characters |
+| `employee_id` | Server (`req.user.id`) | Client-sent value is **ignored** |
+| `status` | Server (`pending`) | Client-sent value is **ignored** |
+| `totalDays` | Server-calculated | Inclusive calendar days |
+
+**Validation rules applied in order:**
+1. `leaveType` must be `sick`, `casual`, or `annual` → 400
+2. `fromDate` and `toDate` must be valid `YYYY-MM-DD` → 400
+3. `toDate` must not be before `fromDate` → 400
+4. `fromDate` must not be in the past → 400
+5. `reason` is required, 1–500 chars → 400
+6. **Overlap check**: if same employee has a pending/approved leave overlapping dates → **409**
+7. **Balance check**: if `LeaveBalance[leaveType] < totalDays` → 400 "Insufficient leave balance"
+
+**Success**: `201 Created`
+
+**Sample request:**
+```json
+{
+  "leaveType": "casual",
+  "fromDate": "2026-12-01",
+  "toDate": "2026-12-03",
+  "reason": "Family function"
+}
+```
+
+**Sample response (201):**
+```json
+{
+  "success": true,
+  "message": "Leave application submitted successfully",
+  "data": {
+    "leave": {
+      "_id": "674...",
+      "employee_id": "673...",
+      "leaveType": "casual",
+      "fromDate": "2026-12-01T00:00:00.000Z",
+      "toDate": "2026-12-03T00:00:00.000Z",
+      "reason": "Family function",
+      "status": "pending",
+      "totalDays": 3,
+      "reviewedBy": null,
+      "reviewedAt": null,
+      "rejectionReason": null,
+      "createdAt": "2026-11-24T...",
+      "updatedAt": "2026-11-24T..."
+    }
+  }
+}
+```
+
+---
+
+### GET `/api/leaves` — Employee's Own Leave History
+
+**Query Parameters:**
+
+| Param | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `page` | integer | `1` | Page number (≥ 1) |
+| `limit` | integer | `10` | Items per page (1–100) |
+| `status` | string | — | Filter: `pending`, `approved`, or `rejected` |
+| `leaveType` | string | — | Filter: `sick`, `casual`, or `annual` |
+| `from` | `YYYY-MM-DD` | — | Start of date range (overlapping leaves returned) |
+| `to` | `YYYY-MM-DD` | — | End of date range |
+| `sortBy` | string | `createdAt` | One of: `createdAt`, `fromDate`, `toDate`, `status`, `leaveType` |
+| `order` | string | `desc` | `asc` or `desc` |
+
+**Success**: `200 OK` with `{ leaves, pagination }`.
+
+Invalid query values → `400 Bad Request`.
+
+**Sample response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "leaves": [ { "...leave object..." } ],
+    "pagination": {
+      "total": 12,
+      "totalPages": 2,
+      "currentPage": 1,
+      "hasNextPage": true,
+      "hasPreviousPage": false
+    }
+  }
+}
+```
+
+---
+
+### GET `/api/leaves/all` — HR / Admin: All Leave Requests
+
+**Access**: `admin` or `hr` only. Employees → `403`.
+
+**Query Parameters:**
+
+| Param | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `page` | integer | `1` | Page number (≥ 1) |
+| `limit` | integer | `10` | Items per page (1–100) |
+| `status` | string | — | Filter: `pending`, `approved`, or `rejected` |
+| `leaveType` | string | — | Filter: `sick`, `casual`, or `annual` |
+| `employeeId` | ObjectId | — | Filter by specific employee (validated 24-hex) |
+| `from` | `YYYY-MM-DD` | — | Date range start |
+| `to` | `YYYY-MM-DD` | — | Date range end |
+| `sortBy` | string | `createdAt` | Allow-list: `createdAt`, `fromDate`, `toDate`, `status`, `leaveType` |
+| `order` | string | `desc` | `asc` or `desc` |
+| `q` | string | — | Case-insensitive search on employee name or leave reason |
+
+**Search (`q`) implementation:** Regex-escapes the query, finds users whose `name` matches (capped at 100), then uses `$or` to match `employee_id ∈ matchingUserIds` OR `reason` matching the regex. Populates `employee_id` with `name`, `email`, `role` only (never password).
+
+**Success**: `200 OK` with `{ leaves, pagination }`.
+
+---
+
+### GET `/api/leaves/:id` — View Single Leave
+
+**Access**: Private. Ownership check: if the leave belongs to someone else and the user is not HR or admin → `403`. Missing leave → `404`. Invalid ObjectId → `400`.
+
+**Sample response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "leave": {
+      "_id": "674...",
+      "employee_id": { "_id": "673...", "name": "John Doe", "email": "john@example.com", "role": "employee" },
+      "leaveType": "sick",
+      "fromDate": "2026-12-10T00:00:00.000Z",
+      "toDate": "2026-12-12T00:00:00.000Z",
+      "reason": "Medical appointment",
+      "status": "pending",
+      "totalDays": 3,
+      "reviewedBy": null,
+      "reviewedAt": null,
+      "rejectionReason": null,
+      "createdAt": "2026-11-24T...",
+      "updatedAt": "2026-11-24T..."
+    }
+  }
+}
+```
+
+---
+
+### DELETE `/api/leaves/:id` — Cancel Own Pending Leave
+
+**Access**: Only the leave owner may cancel, and only while `status` is `pending`.
+
+| Scenario | Status Code |
+| :--- | :--- |
+| Successfully cancelled | `200` |
+| Not found | `404` |
+| Another user's leave | `403` |
+| Already approved or rejected | `409` |
+
+**Sample response (200):**
+```json
+{
+  "success": true,
+  "message": "Leave request cancelled successfully",
+  "data": null
+}
+```
+
+---
+
+## 📮 Step-by-Step Postman Testing Guide (Leave Endpoints)
+
+Ensure your server is running on `http://localhost:5001`. Log in as an employee to get a JWT token, and as an HR/Admin user for the `/all` endpoint tests.
+
+### 1. Apply for Leave (Success)
+- **Method**: `POST`
+- **URL**: `http://localhost:5001/api/leaves`
+- **Headers**: `Authorization: Bearer <employee_token>`, `Content-Type: application/json`
+- **Body**:
+  ```json
+  { "leaveType": "casual", "fromDate": "2026-12-01", "toDate": "2026-12-03", "reason": "Family function" }
+  ```
+- **Expected Status**: `201 Created`
+- **Verify**: `totalDays` is `3`, `status` is `"pending"`, `employee_id` matches the logged-in user. Check MongoDB for the new document.
+
+### 2. Missing Reason (400)
+- **Body**: `{ "leaveType": "sick", "fromDate": "2026-12-05", "toDate": "2026-12-06" }`
+- **Expected Status**: `400 Bad Request`
+- **Expected Message**: `"reason is required"`
+
+### 3. toDate Before fromDate (400)
+- **Body**: `{ "leaveType": "sick", "fromDate": "2026-12-10", "toDate": "2026-12-05", "reason": "Test" }`
+- **Expected Status**: `400`
+- **Expected Message**: `"toDate cannot be before fromDate"`
+
+### 4. Invalid leaveType (400)
+- **Body**: `{ "leaveType": "vacation", "fromDate": "2026-12-10", "toDate": "2026-12-12", "reason": "Test" }`
+- **Expected Status**: `400`
+- **Expected Message**: `"leaveType must be one of: sick, casual, annual"`
+
+### 5. Overlapping Dates (409)
+- Apply for the same dates as Test 1 again.
+- **Expected Status**: `409 Conflict`
+- **Expected Message**: `"You already have a pending or approved leave that overlaps these dates"`
+
+### 6. Insufficient Balance (400)
+- Apply for more days than available balance (e.g., `fromDate: "2026-12-10"`, `toDate: "2027-01-20"` with `leaveType: "casual"` for 42 days when balance is 8).
+- **Expected Status**: `400`
+- **Expected Message**: `"Insufficient leave balance"`
+
+### 7. Fake employee_id Ignored
+- **Body**: `{ "leaveType": "sick", "fromDate": "2026-12-15", "toDate": "2026-12-16", "reason": "Test", "employee_id": "000000000000000000000000", "status": "approved" }`
+- **Expected Status**: `201` — the returned `employee_id` matches `req.user.id`, not the fake one; `status` is `"pending"`.
+
+### 8. Own Leave History (GET /api/leaves)
+- **Method**: `GET`
+- **URL**: `http://localhost:5001/api/leaves?page=1&limit=5&sortBy=fromDate&order=asc`
+- **Expected Status**: `200 OK`
+- **Verify**: Only the logged-in employee's leaves appear; pagination metadata is present.
+
+### 9. Employee Calling /all (403)
+- **Method**: `GET`
+- **URL**: `http://localhost:5001/api/leaves/all`
+- **Headers**: `Authorization: Bearer <employee_token>`
+- **Expected Status**: `403 Forbidden`
+- **Expected Message**: `"You do not have permission to perform this action"`
+
+### 10. HR Calling /all (200)
+- **Headers**: `Authorization: Bearer <hr_token>`
+- **URL**: `http://localhost:5001/api/leaves/all?page=1&limit=10`
+- **Expected Status**: `200 OK`
+- **Verify**: Returns all employees' leaves with `employee_id` populated as `{ _id, name, email, role }` (no password).
+
+### 11. Search by Employee Name (Case-Insensitive)
+- **URL**: `http://localhost:5001/api/leaves/all?q=souvojit` (lowercase)
+- **Expected**: Returns leaves belonging to "Souvojit…"
+- **URL**: `http://localhost:5001/api/leaves/all?q=SOUVOJIT` (uppercase)
+- **Expected**: Same results (case-insensitive).
+
+### 12. Search + Status + Pagination + Sort Combined
+- **URL**: `http://localhost:5001/api/leaves/all?q=souvojit&status=pending&sortBy=fromDate&order=asc&page=1&limit=5`
+- **Expected Status**: `200`
+- **Verify**: Only pending leaves matching the name, sorted by `fromDate` ascending, paginated.
+
+### 13. Invalid Query Value (400)
+- **URL**: `http://localhost:5001/api/leaves/all?status=unknown`
+- **Expected Status**: `400`
+
+### 14. Another Employee's Leave by ID (403)
+- Get a leave ID belonging to another employee.
+- **Method**: `GET`
+- **URL**: `http://localhost:5001/api/leaves/<other_employees_leave_id>`
+- **Headers**: `Authorization: Bearer <employee_token>`
+- **Expected Status**: `403`
+
+### 15. Cancel Own Pending Leave (200)
+- **Method**: `DELETE`
+- **URL**: `http://localhost:5001/api/leaves/<own_pending_leave_id>`
+- **Expected Status**: `200`
+- **Verify**: Document deleted from MongoDB.
+
+### 16. Cancel an Approved Leave (409)
+- **Method**: `DELETE`
+- **URL**: `http://localhost:5001/api/leaves/<approved_leave_id>`
+- **Expected Status**: `409 Conflict`
+- **Expected Message**: `"Cannot cancel a leave request that is already approved"`

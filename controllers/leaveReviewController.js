@@ -7,19 +7,8 @@ const Leave = require('../models/Leave');
 // CONTROLLER: Leave Review & Approvals (HR / Admin)
 // ============================================================
 
-/**
- * @desc    Get all leave requests with filters, search, and pagination
- * @route   GET /api/leaves/all
- * @access  Private (Admin / HR)
- */
-const getAllLeaves = asyncHandler(async (req, res, next) => {
-  // TODO: Sohan - Implement paginated leaves query for HR/Admin with filters
-  return res.status(200).json({
-    success: true,
-    message: 'All leaves endpoint initialized',
-    data: [],
-  });
-});
+// NOTE: getAllLeaves has been moved to leaveController.js (Souvojit's controller)
+// to consolidate leave query logic and ensure /all is defined before /:id.
 
 /**
  * @desc    Approve a pending leave request and deduct balance
@@ -50,7 +39,6 @@ const rejectLeave = asyncHandler(async (req, res, next) => {
 });
 
 module.exports = {
-  getAllLeaves,
   approveLeave,
   rejectLeave,
 };
