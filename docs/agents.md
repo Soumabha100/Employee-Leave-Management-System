@@ -54,7 +54,7 @@ This document outlines the strict operating procedures, architecture contracts, 
 | :--- | :--- | :--- | :--- |
 | **Soumabha** *(Leader)* | `feat/foundation-auth` | `models/User.js`<br>`middleware/auth.js`<br>`middleware/role.js`<br>`utils/token.js`<br>`controllers/authController.js`<br>`controllers/profileController.js`<br>`routes/authRoutes.js`<br>`routes/profileRoutes.js` | Attendance, Leaves, Reviews, Balances |
 | **Soumyajit** | `feat/attendance` | `models/Attendance.js`<br>`controllers/attendanceController.js`<br>`routes/attendanceRoutes.js` | Auth, Leaves, Reviews, Balances |
-| **Souvojit** | `feat/leave-apply` | `models/Leave.js`<br>`controllers/leaveController.js`<br>`routes/leaveRoutes.js` | Auth, Attendance, Reviews, Balances |
+| **Souvojit** | `feat/leaves` | `models/Leave.js`<br>`controllers/leaveController.js`<br>`routes/leaveRoutes.js` | Auth, Attendance, Reviews, Balances |
 | **Sohan** | `feat/leave-review` | `models/LeaveBalance.js`<br>`controllers/leaveReviewController.js`<br>`controllers/leaveBalanceController.js`<br>`routes/leaveReviewRoutes.js`<br>`routes/leaveBalanceRoutes.js` | Auth, Attendance, Leave apply |
 
 ---
