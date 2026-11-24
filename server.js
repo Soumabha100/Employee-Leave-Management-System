@@ -2,6 +2,8 @@ require('dotenv').config();
 
 const app = require('./app');
 const connectDB = require('./config/db');
+const User = require('./models/User');
+const LeaveBalance = require('./models/LeaveBalance');
 
 // Fail fast: verify critical environment variables
 const requiredEnv = ['PORT', 'JWT_SECRET'];
@@ -28,6 +30,9 @@ const startServer = async () => {
   // Connect to MongoDB if MONGO_URI is provided
   if (process.env.MONGO_URI && process.env.MONGO_URI.trim() !== '') {
     await connectDB();
+    // Ensure unique indexes are built before requests are handled
+    await User.init();
+    await LeaveBalance.init();
   } else {
     console.log('Notice: MONGO_URI is not set yet. Skipping MongoDB connection for now.');
   }

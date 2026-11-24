@@ -1,5 +1,6 @@
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
+const User = require('../models/User');
 
 // ============================================================
 // OWNER: Soumabha
@@ -7,16 +8,30 @@ const AppError = require('../utils/AppError');
 // ============================================================
 
 /**
- * @desc    Get current authenticated employee profile
+ * Retrieves authenticated employee profile re-read from database.
+ * No passwords or sensitive tokens returned.
+ *
  * @route   GET /api/profile
- * @access  Private
+ * @access  Private (Authenticated User)
  */
 const getProfile = asyncHandler(async (req, res, next) => {
-  // TODO: Soumabha - Return authenticated user profile (req.user)
+  const user = await User.findById(req.user.id);
+
+  if (!user) {
+    throw new AppError('User no longer exists', 401);
+  }
+
   return res.status(200).json({
     success: true,
-    message: 'Profile endpoint initialized',
-    data: req.user || null,
+    data: {
+      user: {
+        id: user._id.toString(),
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        createdAt: user.createdAt,
+      },
+    },
   });
 });
 

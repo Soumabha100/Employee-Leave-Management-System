@@ -28,6 +28,9 @@ A comprehensive Node.js + Express + MongoDB RESTful API for employee attendance,
 │   ├── leaveController.js
 │   ├── leaveReviewController.js
 │   └── profileController.js
+├── docs/
+│   ├── agents.md             # AI Agent rules & team boundaries
+│   └── logs.md               # Development milestone & test verification logs
 ├── middleware/
 │   ├── auth.js               # JWT authentication & role-based authorization
 │   ├── errorHandler.js       # Central error handling middleware
