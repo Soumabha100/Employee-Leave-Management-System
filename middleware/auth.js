@@ -24,8 +24,8 @@ const protect = asyncHandler(async (req, res, next) => {
     throw new AppError('Authentication required', 401);
   }
 
-  const token = authHeader.split(' ')[1];
-  if (!token || token.trim() === '') {
+  const token = authHeader.substring(7).trim();
+  if (!token) {
     throw new AppError('Authentication required', 401);
   }
 

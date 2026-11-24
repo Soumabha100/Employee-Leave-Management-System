@@ -66,3 +66,26 @@ This log records all changes, milestones, test verifications, and architectural 
 10. **Check 10 (Role Authorization)**: `authorize('admin', 'hr')` returns 403 `"You do not have permission to perform this action"` for employee tokens, while admin and hr tokens call `next()`. [PASS]
 11. **Check 11 (Response Data Leak Audit)**: No plaintext password or bcrypt hashes present in any client responses. [PASS]
 12. **Check 12 (NoSQL Query Audit)**: Verified that zero controller queries pass `req.body` or `req.query` directly into Mongoose operations. [PASS]
+
+---
+
+## [Phase 2 - Tasks 3 & 4] - Live Cluster Testing, Security Sweep & PR Review
+- **Date**: 2026-11-24
+- **Owner**: Soumabha (Leader)
+- **Branch**: `feat/foundation-auth`
+- **Status**: Completed
+
+### Live MongoDB Cluster Verification:
+- Connected to remote cluster `ac-riw56jg-shard-00-00.egzrx3f.mongodb.net`.
+- Successfully validated full registration, duplicate registration, role escalation defense, validation constraints, login timing defense, and profile access against live MongoDB Atlas.
+- Verified in live database that:
+  - User password starts with `$2b$10$` (bcrypt hashed).
+  - Default `LeaveBalance` document created with `{ sick: 10, casual: 8, annual: 15 }`.
+  - Zero password leaks across all JSON response payloads.
+
+### Repository Security Sweep Findings & Actions:
+1. **Bearer Token Parsing Defense**: Refactored `middleware/auth.js` to use `substring(7).trim()` instead of simple split to defensively handle edge cases with variable whitespace.
+2. **Timing Attack Hardening**: Verified constant-time dummy hash comparison is active on unknown user login attempts.
+3. **NoSQL Injection Resistance**: Verified all string inputs in controllers enforce `requireString()`.
+4. **Secrets Audit**: Confirmed `.env` is uncommitted and strictly tracked by `.gitignore`.
+5. **Documentation**: Added comprehensive 8-step Postman testing guide to `README.md`.
