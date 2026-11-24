@@ -67,7 +67,7 @@ Before submitting any work:
 2. **Clean Up Scratch Files**:
    - Never commit throwaway test scripts. Delete them immediately after successful verification.
 3. **Log the Results**:
-   - Agents must append a detailed log entry to `logs.md` detailing:
+   - Agents must append a detailed log entry to `docs/logs.md` detailing:
      - Date & branch worked on
      - Features implemented
      - Verification tests executed and results (pass/fail)
