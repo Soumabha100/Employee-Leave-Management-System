@@ -1,61 +1,52 @@
-const jwt = require('jsonwebtoken');
 const AppError = require('../utils/AppError');
 const asyncHandler = require('../utils/asyncHandler');
+const { verifyToken } = require('../utils/token');
 const User = require('../models/User');
 
 // ============================================================
 // OWNER: Soumabha
-// MIDDLEWARE: Authentication & Role Authorization
+// MIDDLEWARE: Authentication (protect)
 // ============================================================
 
 /**
- * Protect middleware: validates Bearer JWT token from Authorization header
- * and attaches authenticated user to req.user.
+ * Protect middleware: validates Bearer token in Authorization header,
+ * checks user existence in database, and sets req.user.
+ *
+ * @param {object} req - Express request object.
+ * @param {object} res - Express response object.
+ * @param {Function} next - Express next middleware function.
+ * @throws {AppError} 401 if header missing, invalid format, expired, or user not found.
  */
 const protect = asyncHandler(async (req, res, next) => {
-  let token;
+  const authHeader = req.headers.authorization;
 
-  if (
-    req.headers.authorization &&
-    req.headers.authorization.startsWith('Bearer')
-  ) {
-    token = req.headers.authorization.split(' ')[1];
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    throw new AppError('Authentication required', 401);
   }
 
-  if (!token) {
-    return next(new AppError('Authentication token required', 401));
+  const token = authHeader.split(' ')[1];
+  if (!token || token.trim() === '') {
+    throw new AppError('Authentication required', 401);
   }
 
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.id).select('-password');
-    if (!user) {
-      return next(new AppError('User belonging to this token no longer exists', 401));
-    }
-    req.user = user;
-    next();
-  } catch (err) {
-    next(err);
-  }
-});
+  // verifyToken will let JsonWebTokenError and TokenExpiredError bubble to errorHandler
+  const decoded = verifyToken(token);
 
-/**
- * Authorize middleware: restricts access to specified roles.
- *
- * @param  {...string} roles - Permitted user roles (e.g. 'admin', 'hr').
- */
-const authorize = (...roles) => {
-  return (req, res, next) => {
-    if (!req.user || !roles.includes(req.user.role)) {
-      return next(
-        new AppError('You do not have permission to perform this action', 403)
-      );
-    }
-    next();
+  const user = await User.findById(decoded.id);
+  if (!user) {
+    throw new AppError('User no longer exists', 401);
+  }
+
+  req.user = {
+    id: user._id.toString(),
+    role: user.role,
+    name: user.name,
+    email: user.email,
   };
-};
+
+  next();
+});
 
 module.exports = {
   protect,
-  authorize,
 };

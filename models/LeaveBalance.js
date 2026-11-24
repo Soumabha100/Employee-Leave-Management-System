@@ -2,13 +2,8 @@ const mongoose = require('mongoose');
 const { DEFAULT_BALANCES } = require('../config/constants');
 
 // ============================================================
-// OWNER: Sohan
+// OWNER: Sohan (Maintained in Phase 2 for Registration Orchestration)
 // MODEL: LeaveBalance
-// SPECIFICATION:
-// - employee_id: required User ObjectId reference (unique)
-// - sick: number min:0 (default 10)
-// - casual: number min:0 (default 8)
-// - annual: number min:0 (default 15)
 // ============================================================
 
 const leaveBalanceSchema = new mongoose.Schema(
@@ -21,16 +16,19 @@ const leaveBalanceSchema = new mongoose.Schema(
     },
     sick: {
       type: Number,
+      required: true,
       default: DEFAULT_BALANCES.sick,
       min: [0, 'Sick leave balance cannot be negative'],
     },
     casual: {
       type: Number,
+      required: true,
       default: DEFAULT_BALANCES.casual,
       min: [0, 'Casual leave balance cannot be negative'],
     },
     annual: {
       type: Number,
+      required: true,
       default: DEFAULT_BALANCES.annual,
       min: [0, 'Annual leave balance cannot be negative'],
     },
@@ -39,5 +37,12 @@ const leaveBalanceSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+leaveBalanceSchema.set('toJSON', {
+  transform: (doc, ret) => {
+    delete ret.__v;
+    return ret;
+  },
+});
 
 module.exports = mongoose.model('LeaveBalance', leaveBalanceSchema);
