@@ -3,8 +3,8 @@ require('dotenv').config();
 const app = require('./app');
 const connectDB = require('./config/db');
 
-// Fail fast: check required environment variables
-const requiredEnv = ['PORT', 'MONGO_URI', 'JWT_SECRET'];
+// Fail fast: verify critical environment variables
+const requiredEnv = ['PORT', 'JWT_SECRET'];
 for (const envVar of requiredEnv) {
   if (!process.env[envVar]) {
     console.error(`Missing required environment variable: ${envVar}`);
@@ -12,7 +12,7 @@ for (const envVar of requiredEnv) {
   }
 }
 
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 5000;
 
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err);
@@ -25,7 +25,13 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 const startServer = async () => {
-  await connectDB();
+  // Connect to MongoDB if MONGO_URI is provided
+  if (process.env.MONGO_URI && process.env.MONGO_URI.trim() !== '') {
+    await connectDB();
+  } else {
+    console.log('Notice: MONGO_URI is not set yet. Skipping MongoDB connection for now.');
+  }
+
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
   });
