@@ -4,6 +4,8 @@ const app = require('./app');
 const connectDB = require('./config/db');
 const User = require('./models/User');
 const LeaveBalance = require('./models/LeaveBalance');
+const Attendance = require('./models/Attendance');
+const Leave = require('./models/Leave');
 
 // Fail fast: verify critical environment variables
 const requiredEnv = ['PORT', 'JWT_SECRET'];
@@ -33,6 +35,8 @@ const startServer = async () => {
     // Ensure unique indexes are built before requests are handled
     await User.init();
     await LeaveBalance.init();
+    await Attendance.init();
+    await Leave.init();
   } else {
     console.log('Notice: MONGO_URI is not set yet. Skipping MongoDB connection for now.');
   }
