@@ -152,3 +152,55 @@ This log records all changes, milestones, test verifications, and architectural 
    - Live cluster verification against MongoDB Atlas (`leave_management` DB).
    - Documented 16 comprehensive Postman test scenarios covering all happy paths, edge cases, validation rejections (400), conflicts (409), and authorization boundaries (403).
    - Created standalone `postman-testing-guide.md` and updated `README.md` with complete parameter specifications and sample JSON payloads.
+
+---
+
+## [Phase 4] - Attendance Management: Check-in, Check-out & Records
+- **Date**: 2026-11-28
+- **Owner**: Soumyajit Karmakar (Member 2)
+- **Branch**: `feat/attendance`
+- **Status**: Completed & Verified
+
+### Summary of Work:
+1. **Model Implementation (`models/Attendance.js`)**:
+   - Schema defined with:
+     - `employee_id`: required User ObjectId reference.
+     - `date`: required Date object (normalized to `00:00:00.000 UTC` for the day via `startOfDay`).
+     - `checkIn`: required Date representing check-in instant.
+     - `checkOut`: nullable Date (defaults to `null`).
+     - `status`: enum (`present`, `late`, `absent`), defaults to `'present'`.
+   - Index definitions:
+     - Unique compound index `{ employee_id: 1, date: 1 }` to enforce single check-in per calendar day.
+     - Compound query index `{ employee_id: 1, date: -1 }` to optimize reverse chronological history queries.
+   - Enforced `toJSON` transform to omit `__v`.
+   - Hooked `Attendance.init()` into `server.js` startup lifecycle to guarantee index creation in MongoDB before requests are handled.
+
+2. **Controllers (`controllers/attendanceController.js`)**:
+   - `checkIn` (POST `/api/attendance/check-in`):
+     - Sets `employee_id = req.user.id`, `date = startOfDay(now)`, and `checkIn = now`.
+     - Dynamic status calculation: evaluates `minutesSinceMidnight(now)` against `OFFICE_START` (09:30 AM in `Asia/Kolkata` / +5:30 offset). If arrival is after 09:30 AM (570 minutes), marks status as `'late'`, otherwise `'present'`.
+     - Multi-tier duplicate check: checks for existing daily record and responds with status 409 Conflict (`"Already checked in today"`). Also handles MongoDB E11000 duplicate key race-conditions and re-maps to 409.
+     - Returns status 201 Created with created attendance document.
+   - `checkOut` (PUT `/api/attendance/check-out`):
+     - Locates current day's record for `req.user.id`.
+     - Returns 404 Not Found (`"No check-in found for today"`) if no check-in exists.
+     - Returns 409 Conflict (`"Already checked out today"`) if `checkOut` is already recorded.
+     - Validates that checkout timestamp is not prior to checkin timestamp (400).
+     - Sets `checkOut = now` and returns 200 OK with updated record.
+   - `getAttendance` (GET `/api/attendance`):
+     - Strict data isolation: defaults `employee_id` filter to `req.user.id`.
+     - Optional elevated view: allows `admin` and `hr` roles to supply `?employeeId=<ObjectId>` (validated via `isValidObjectId`); regular employees attempting to query other IDs are strictly constrained to their own records.
+     - Pagination: integrates `parsePagination` (defaults page 1, limit 10, max limit 100 with 400 validation).
+     - Date filtering: parses `from` and `to` (`YYYY-MM-DD`), enforcing chronological order (`from <= to` else 400).
+     - Status filtering: validates against `ATTENDANCE_STATUS` enum values (`present`, `late`, `absent`).
+     - Sorting: validated through `parseSort` against allow-list `['date', 'checkIn', 'checkOut', 'status']` (default: `date` descending).
+     - High performance: single filter object passed to both `countDocuments(filter)` and `find(filter)`, applying `.lean()` on output.
+     - Emits standard pagination metadata (`total`, `totalPages`, `currentPage`, `hasNextPage`, `hasPreviousPage`).
+
+3. **Routing Architecture (`routes/attendanceRoutes.js`)**:
+   - Enforces `protect` JWT middleware on all routes.
+   - Routes mounted: `POST /api/attendance/check-in`, `PUT /api/attendance/check-out`, `GET /api/attendance`.
+
+4. **Testing Suite & Documentation**:
+   - Documented 14 comprehensive Postman test cases in `README.md`.
+   - Outlined architectural boundaries and known limits (midnight-crossing shifts out of scope; check-out applies to today's record).

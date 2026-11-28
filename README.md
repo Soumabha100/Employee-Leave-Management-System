@@ -602,3 +602,225 @@ Ensure your server is running on `http://localhost:5001`. Log in as an employee 
 - **URL**: `http://localhost:5001/api/leaves/<approved_leave_id>`
 - **Expected Status**: `409 Conflict`
 - **Expected Message**: `"Cannot cancel a leave request that is already approved"`
+
+---
+
+## ⏱️ Attendance Endpoints – Detailed Documentation (Owner: Soumyajit)
+
+> **Known Limitation & Architectural Decision**:
+> - A shift that crosses midnight is out of scope.
+> - A check-out always applies strictly to today's record (matching calendar day in the office timezone `Asia/Kolkata`, UTC+5:30).
+> - Duplicate check-in prevention is enforced both via database query check and a unique compound index on `(employee_id, date)` with duplicate key (11000) race-condition handling.
+
+### POST `/api/attendance/check-in` — Daily Check-In
+
+- **Access**: Private (Authenticated Employee / User)
+- **Request Body**: None (any body passed is ignored).
+- **Rules**:
+  - `employee_id` is set strictly from `req.user.id`.
+  - `date` is normalized to `00:00:00.000 UTC` for the current office day (`startOfDay(now)`).
+  - `checkIn` is recorded as current server instant (`now`).
+  - `status` is automatically calculated:
+    - If `minutesSinceMidnight(now) > 570` (09:30 AM Asia/Kolkata), marked as `late`.
+    - Otherwise, marked as `present`.
+  - Duplicate check: returns `409 Conflict` (`"Already checked in today"`) if a record for the current date already exists or on concurrent write collisions (Mongo 11000).
+
+**Success**: `201 Created`
+
+**Sample Response (201):**
+```json
+{
+  "success": true,
+  "message": "Check-in successful",
+  "data": {
+    "attendance": {
+      "_id": "674...",
+      "employee_id": "673...",
+      "date": "2026-11-28T00:00:00.000Z",
+      "checkIn": "2026-11-28T09:15:30.123Z",
+      "checkOut": null,
+      "status": "present",
+      "createdAt": "2026-11-28T09:15:30.124Z",
+      "updatedAt": "2026-11-28T09:15:30.124Z"
+    }
+  }
+}
+```
+
+---
+
+### PUT `/api/attendance/check-out` — Daily Check-Out
+
+- **Access**: Private (Authenticated Employee / User)
+- **Request Body**: None.
+- **Rules**:
+  - Finds today's attendance record (`date: startOfDay(now)`) for `req.user.id`.
+  - If no check-in record exists for today: returns `404 Not Found` (`"No check-in found for today"`).
+  - If check-out was already performed (`checkOut != null`): returns `409 Conflict` (`"Already checked out today"`).
+  - Confirms check-out time is not earlier than check-in time (otherwise `400 Bad Request`).
+  - Sets `checkOut = now`.
+
+**Success**: `200 OK`
+
+**Sample Response (200):**
+```json
+{
+  "success": true,
+  "message": "Check-out successful",
+  "data": {
+    "attendance": {
+      "_id": "674...",
+      "employee_id": "673...",
+      "date": "2026-11-28T00:00:00.000Z",
+      "checkIn": "2026-11-28T09:15:30.123Z",
+      "checkOut": "2026-11-28T17:45:00.456Z",
+      "status": "present",
+      "createdAt": "2026-11-28T09:15:30.124Z",
+      "updatedAt": "2026-11-28T17:45:00.457Z"
+    }
+  }
+}
+```
+
+---
+
+### GET `/api/attendance` — Personal Attendance History & Records
+
+- **Access**: Private (Authenticated Employee / User). Employees only see their own records.
+- **Optional Admin/HR feature**: Admin and HR users may pass `?employeeId=<ObjectId>` to inspect attendance for a specific employee. Regular employees passing this query parameter continue to see only their own attendance records.
+
+**Query Parameters:**
+
+| Param | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `page` | integer | `1` | Page number (≥ 1) |
+| `limit` | integer | `10` | Items per page (1–100) |
+| `from` | `YYYY-MM-DD` | — | Start date of query range |
+| `to` | `YYYY-MM-DD` | — | End date of query range (must be on or after `from`) |
+| `status` | string | — | Filter by status: `present`, `late`, or `absent` |
+| `sortBy` | string | `date` | Allow-list: `date`, `checkIn`, `checkOut`, `status` |
+| `order` | string | `desc` | Sort order: `asc` or `desc` |
+| `employeeId` | ObjectId | — | Admin/HR only: filter specific employee records |
+
+**Success**: `200 OK`
+
+**Sample Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "attendance": [
+      {
+        "_id": "674...",
+        "employee_id": "673...",
+        "date": "2026-11-28T00:00:00.000Z",
+        "checkIn": "2026-11-28T09:15:30.123Z",
+        "checkOut": "2026-11-28T17:45:00.456Z",
+        "status": "present",
+        "createdAt": "2026-11-28T...",
+        "updatedAt": "2026-11-28T..."
+      }
+    ],
+    "pagination": {
+      "total": 1,
+      "totalPages": 1,
+      "currentPage": 1,
+      "hasNextPage": false,
+      "hasPreviousPage": false
+    }
+  }
+}
+```
+
+---
+
+## 📮 Step-by-Step Postman Testing Guide (Attendance Endpoints)
+
+### 1. Check-in OK (201)
+- **Method**: `POST`
+- **URL**: `http://localhost:5001/api/attendance/check-in`
+- **Headers**: `Authorization: Bearer <employee_token>`
+- **Expected Status**: `201 Created`
+- **Verify**: `status` is `"present"` or `"late"` depending on office hour, `checkOut` is `null`.
+
+### 2. Check-in Twice Today (409)
+- **Method**: `POST`
+- **URL**: `http://localhost:5001/api/attendance/check-in`
+- **Headers**: `Authorization: Bearer <employee_token>`
+- **Expected Status**: `409 Conflict`
+- **Expected Message**: `"Already checked in today"`
+
+### 3. Check-out OK (200)
+- **Method**: `PUT`
+- **URL**: `http://localhost:5001/api/attendance/check-out`
+- **Headers**: `Authorization: Bearer <employee_token>`
+- **Expected Status**: `200 OK`
+- **Verify**: `checkOut` timestamp is recorded and later than `checkIn`.
+
+### 4. Check-out Twice Today (409)
+- **Method**: `PUT`
+- **URL**: `http://localhost:5001/api/attendance/check-out`
+- **Headers**: `Authorization: Bearer <employee_token>`
+- **Expected Status**: `409 Conflict`
+- **Expected Message**: `"Already checked out today"`
+
+### 5. Check-out Without Check-in (404)
+- Run for a user who has not checked in today.
+- **Method**: `PUT`
+- **URL**: `http://localhost:5001/api/attendance/check-out`
+- **Headers**: `Authorization: Bearer <new_user_token>`
+- **Expected Status**: `404 Not Found`
+- **Expected Message**: `"No check-in found for today"`
+
+### 6. Missing Authentication Token (401)
+- **Method**: `GET`
+- **URL**: `http://localhost:5001/api/attendance`
+- **Headers**: *(Remove Authorization header)*
+- **Expected Status**: `401 Unauthorized`
+- **Expected Message**: `"Authentication required"`
+
+### 7. Attendance List with Pagination (200)
+- **Method**: `GET`
+- **URL**: `http://localhost:5001/api/attendance?page=1&limit=5`
+- **Headers**: `Authorization: Bearer <employee_token>`
+- **Expected Status**: `200 OK`
+- **Verify**: Only the logged-in employee's records appear; pagination metadata populated.
+
+### 8. Date Range Filter (200)
+- **Method**: `GET`
+- **URL**: `http://localhost:5001/api/attendance?from=2026-11-01&to=2026-11-30`
+- **Expected Status**: `200 OK`
+- **Verify**: Records within date range returned.
+
+### 9. Status Filter (200)
+- **Method**: `GET`
+- **URL**: `http://localhost:5001/api/attendance?status=present`
+- **Expected Status**: `200 OK`
+- **Verify**: Only `present` status records returned.
+
+### 10. Sort by checkIn Ascending (200)
+- **Method**: `GET`
+- **URL**: `http://localhost:5001/api/attendance?sortBy=checkIn&order=asc`
+- **Expected Status**: `200 OK`
+
+### 11. Limit Above 100 (400)
+- **Method**: `GET`
+- **URL**: `http://localhost:5001/api/attendance?limit=150`
+- **Expected Status**: `400 Bad Request`
+- **Expected Message**: `"Query parameter 'limit' must be between 1 and 100"`
+
+### 12. Invalid Date (400)
+- **Method**: `GET`
+- **URL**: `http://localhost:5001/api/attendance?from=invalid-date`
+- **Expected Status**: `400 Bad Request`
+
+### 13. Invalid Status (400)
+- **Method**: `GET`
+- **URL**: `http://localhost:5001/api/attendance?status=holiday`
+- **Expected Status**: `400 Bad Request`
+
+### 14. Data Isolation (Another Employee's Records Never Appear)
+- Log in as Employee A and check in.
+- Log in as Employee B and call `GET /api/attendance` (even passing `?employeeId=<Employee_A_Id>`).
+- **Expected Status**: `200 OK`
+- **Verify**: Employee B receives only their own records (or empty array if not checked in), never Employee A's records.
